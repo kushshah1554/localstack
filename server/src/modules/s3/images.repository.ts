@@ -18,3 +18,12 @@ export async function insertImageRecord(record: ImageRecord) {
 export function findImageRecord(id: string) {
   return images.findOne({ _id: id });
 }
+
+// shortcut: returns every record, add pagination once there are thousands of images.
+export function listImageRecords() {
+  return images.find().sort({ createdAt: -1 }).toArray();
+}
+
+export async function deleteImageRecord(id: string) {
+  await images.deleteOne({ _id: id });
+}

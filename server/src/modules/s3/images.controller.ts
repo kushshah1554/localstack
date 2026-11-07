@@ -3,7 +3,7 @@ import type { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { NoSuchKey } from '@aws-sdk/client-s3';
 import type { Request, Response } from 'express';
-import { getImage, saveImage } from './images.service.ts';
+import { deleteImage, getImage, listImages, saveImage } from './images.service.ts';
 
 // SVG is left out on purpose: it can carry scripts that run when opened in a browser.
 const extensions: Record<string, string> = {
@@ -33,6 +33,18 @@ export async function uploadImage(req: Request, res: Response) {
   const id = `${randomUUID()}.${extension}`;
   await saveImage(id, file.buffer, file.mimetype);
   res.status(201).json({ id });
+}
+
+export async function getImages(_req: Request, res: Response) {
+  res.json(await listImages());
+}
+
+export async function removeImage(req: Request<{ id: string }>, res: Response) {
+  if (!(await deleteImage(req.params.id))) {
+    res.status(404).json({ error: 'Image not found' });
+    return;
+  }
+  res.status(204).end();
 }
 
 export async function downloadImage(req: Request<{ id: string }>, res: Response) {

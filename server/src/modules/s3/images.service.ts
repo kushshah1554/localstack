@@ -1,5 +1,10 @@
 import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { findImageRecord, insertImageRecord } from './images.repository.ts';
+import {
+  deleteImageRecord,
+  findImageRecord,
+  insertImageRecord,
+  listImageRecords,
+} from './images.repository.ts';
 import { bucket, s3 } from './s3.client.ts';
 
 // Keeps images apart from anything else stored in the bucket.
@@ -37,4 +42,25 @@ export async function getImage(id: string) {
 
   const file = await s3.send(new GetObjectCommand({ Bucket: record.bucket, Key: record.key }));
   return { record, file };
+}
+
+// Bucket and key stay internal, clients only need the id.
+export async function listImages() {
+  const records = await listImageRecords();
+  return records.map(({ _id, contentType, size, createdAt }) => ({
+    id: _id,
+    contentType,
+    size,
+    createdAt,
+  }));
+}
+
+// S3 goes first: if the Mongo delete then fails, deleting again still works, and no hidden file is left behind.
+export async function deleteImage(id: string) {
+  const record = await findImageRecord(id);
+  if (!record) return false;
+
+  await s3.send(new DeleteObjectCommand({ Bucket: record.bucket, Key: record.key }));
+  await deleteImageRecord(id);
+  return true;
 }

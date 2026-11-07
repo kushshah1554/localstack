@@ -1,0 +1,99 @@
+:root {
+  color-scheme: light dark;
+  font-family: system-ui, sans-serif;
+  --border: #d4d4d8;
+  --accent: #2563eb;
+  --error: #dc2626;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --border: #3f3f46;
+    --accent: #60a5fa;
+    --error: #f87171;
+  }
+}
+
+body {
+  margin: 0;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 16px;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 16px;
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 1.1rem;
+}
+
+form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+form label {
+  flex-basis: 100%;
+  font-size: 0.9rem;
+}
+
+button {
+  padding: 8px 16px;
+  border: 0;
+  border-radius: 6px;
+  background: var(--accent);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+button.danger {
+  background: var(--error);
+}
+
+.error {
+  color: var(--error);
+}
+
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  padding: 0;
+  list-style: none;
+}
+
+.gallery li {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gallery img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 6px;
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

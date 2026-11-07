@@ -74,6 +74,44 @@ test('upload stores the file in S3 and its record in Mongo, then downloads uncha
   assert.deepEqual(new Uint8Array(await downloaded.arrayBuffer()), bytes);
 });
 
+test('list returns images newest first, without internal S3 details', async (t) => {
+  const first = (await (await upload(new Uint8Array([1]), 'image/png')).json()).id;
+  removeAfterTest(t, first);
+  await new Promise((resolve) => setTimeout(resolve, 5)); // distinct createdAt, so the order is stable
+  const second = (await (await upload(new Uint8Array([2, 2]), 'image/gif')).json()).id;
+  removeAfterTest(t, second);
+
+  const res = await fetch(api);
+  assert.equal(res.status, 200);
+  const list: { id: string; size: number }[] = await res.json();
+  const ids = list.map((image) => image.id);
+  assert.ok(ids.indexOf(second) < ids.indexOf(first));
+  assert.ok(ids.indexOf(first) >= 0);
+
+  const image = list.find((item) => item.id === second);
+  assert.deepEqual(Object.keys(image ?? {}).sort(), ['contentType', 'createdAt', 'id', 'size']);
+  assert.equal(image?.size, 2);
+});
+
+test('delete removes the file from S3 and the record from Mongo', async (t) => {
+  const { id } = await (await upload(new Uint8Array([1, 2, 3]), 'image/png')).json();
+  removeAfterTest(t, id);
+
+  const res = await fetch(`${api}/${id}`, { method: 'DELETE' });
+  assert.equal(res.status, 204);
+
+  assert.equal(await records.findOne({ _id: id }), null);
+  assert.ok(!(await listImageKeys()).includes(`images/${id}`));
+  assert.equal((await fetch(`${api}/${id}`)).status, 404);
+  assert.ok(!(await (await fetch(api)).json()).some((image: { id: string }) => image.id === id));
+});
+
+test('delete returns 404 for unknown ids and files outside images/', async () => {
+  const missing = '00000000-0000-0000-0000-000000000000.png';
+  assert.equal((await fetch(`${api}/${missing}`, { method: 'DELETE' })).status, 404);
+  assert.equal((await fetch(`${api}/hello.txt`, { method: 'DELETE' })).status, 404);
+});
+
 test('a failed Mongo insert removes the file from S3', async (t) => {
   const keysBefore = await listImageKeys();
   t.mock.method(Collection.prototype, 'insertOne', async () => {
