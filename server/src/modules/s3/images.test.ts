@@ -71,6 +71,7 @@ test('upload stores the file in S3 and its record in Mongo, then downloads uncha
   assert.equal(downloaded.headers.get('content-type'), 'image/png');
   assert.equal(downloaded.headers.get('x-content-type-options'), 'nosniff');
   assert.match(downloaded.headers.get('content-disposition') ?? '', /^attachment/);
+  assert.equal(downloaded.headers.get('cache-control'), 'private, max-age=31536000, immutable');
   assert.deepEqual(new Uint8Array(await downloaded.arrayBuffer()), bytes);
 });
 
@@ -181,7 +182,10 @@ test('rejects requests that are not a valid image form', async () => {
 
 test('download returns 404 for unknown ids and files outside images/', async () => {
   const missing = '00000000-0000-0000-0000-000000000000.png';
-  assert.equal((await fetch(`${api}/${missing}`)).status, 404);
+  const notFound = await fetch(`${api}/${missing}`);
+  assert.equal(notFound.status, 404);
+  // A 404 must not be cached, or an image could look missing after it exists.
+  assert.equal(notFound.headers.get('cache-control'), null);
   assert.equal((await fetch(`${api}/hello.txt`)).status, 404);
   assert.equal((await fetch(`${api}/..%2Fhello.txt`)).status, 404);
 });

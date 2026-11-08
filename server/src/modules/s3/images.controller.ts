@@ -61,6 +61,8 @@ export async function downloadImage(req: Request<{ id: string }>, res: Response)
     res.set({
       'Content-Type': image.record.contentType,
       'X-Content-Type-Options': 'nosniff',
+      // Ids are random and files are never overwritten, so a URL always means the same bytes.
+      'Cache-Control': 'private, max-age=31536000, immutable',
     });
     await pipeline(image.file.Body as Readable, res);
   } catch (err) {
