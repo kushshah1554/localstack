@@ -1,12 +1,13 @@
 import { useState } from 'react';
-import { deleteImage, imageUrl, type Image } from '../api/images';
+import { deleteImage, type Image } from '../api/images';
 
 interface Props {
   images: Image[];
   onDeleted: (id: string) => void;
+  onImageError: () => void;
 }
 
-export function ImageList({ images, onDeleted }: Props) {
+export function ImageList({ images, onDeleted, onImageError }: Props) {
   const [deletingId, setDeletingId] = useState('');
   const [error, setError] = useState('');
 
@@ -36,14 +37,14 @@ export function ImageList({ images, onDeleted }: Props) {
           {images.map((image) => (
             <li key={image.id}>
               <img
-                src={imageUrl(image.id)}
+                src={image.url}
                 alt={`Uploaded ${new Date(image.createdAt).toLocaleString()}`}
                 loading="lazy"
+                onError={onImageError}
               />
               <div className="actions">
-                <a href={imageUrl(image.id)} download={image.id}>
-                  Download
-                </a>
+                {/* S3 sends this link as a download, so no `download` attribute is needed. */}
+                <a href={image.downloadUrl}>Download</a>
                 <button
                   type="button"
                   className="danger"

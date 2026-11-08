@@ -5,15 +5,14 @@ export interface Image {
   contentType: string;
   size: number;
   createdAt: string;
+  // Signed S3 links, valid for at least 1 hour after the list is loaded.
+  url: string;
+  downloadUrl: string;
 }
 
 async function errorMessage(res: Response, fallback: string) {
   const body = await res.json().catch(() => null);
   return body?.error ?? `${fallback} (status ${res.status})`;
-}
-
-export function imageUrl(id: string) {
-  return `${BASE_URL}/${encodeURIComponent(id)}`;
 }
 
 export async function listImages(): Promise<Image[]> {
@@ -31,6 +30,6 @@ export async function uploadImage(file: File) {
 }
 
 export async function deleteImage(id: string) {
-  const res = await fetch(imageUrl(id), { method: 'DELETE' });
+  const res = await fetch(`${BASE_URL}/${encodeURIComponent(id)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(await errorMessage(res, 'Delete failed'));
 }
