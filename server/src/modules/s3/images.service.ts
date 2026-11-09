@@ -1,18 +1,15 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import {
   deleteImageRecord,
   findImageRecord,
   insertImageRecord,
   listImageRecords,
-  type ImageRecord,
 } from './images.repository.ts';
 import { bucket, s3 } from './s3.client.ts';
+import { signUrl } from './s3.signer.ts';
 
 // Keeps images apart from anything else stored in the bucket.
 const prefix = 'images/';
-
-const HOUR_IN_SECONDS = 60 * 60;
 
 // S3 goes first so a Mongo record never points at a file that was not stored.
 export async function saveImage(id: string, body: Buffer, contentType: string) {
@@ -39,22 +36,6 @@ export async function saveImage(id: string, body: Buffer, contentType: string) {
   }
 }
 
-// Signing from the start of the hour keeps a link identical for that whole hour, so the
-// browser can reuse its cached image. Lasting 2 hours means every link has at least 1 hour left.
-function signUrl(record: ImageRecord, asDownload: boolean) {
-  const signingDate = new Date();
-  signingDate.setUTCMinutes(0, 0, 0);
-
-  const command = new GetObjectCommand({
-    Bucket: record.bucket,
-    Key: record.key,
-    // Files never change under the same id, so the browser may keep them.
-    ResponseCacheControl: 'private, max-age=31536000, immutable',
-    ResponseContentDisposition: asDownload ? `attachment; filename="${record._id}"` : undefined,
-  });
-  return getSignedUrl(s3, command, { signingDate, expiresIn: 2 * HOUR_IN_SECONDS });
-}
-
 // Links are only signed for images that have a Mongo record. Bucket and key stay internal.
 export async function listImages() {
   const records = await listImageRecords();
@@ -64,8 +45,8 @@ export async function listImages() {
       contentType: record.contentType,
       size: record.size,
       createdAt: record.createdAt,
-      url: await signUrl(record, false),
-      downloadUrl: await signUrl(record, true),
+      url: await signUrl(record),
+      downloadUrl: await signUrl(record, record._id),
     }))
   );
 }

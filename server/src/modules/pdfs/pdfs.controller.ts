@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
-import { savePdf } from './pdfs.service.ts';
+import { deletePdf, listPdfs, savePdf } from './pdfs.service.ts';
 
 export async function uploadPdf(req: Request, res: Response) {
   const { file } = req;
@@ -15,6 +15,20 @@ export async function uploadPdf(req: Request, res: Response) {
   }
 
   const id = `${randomUUID()}.pdf`;
-  const { size, originalSize } = await savePdf(id, file.buffer);
+  // The name comes from the user, so it is only shown and used as the download name, never as an S3 key.
+  const name = file.originalname.slice(0, 200) || id;
+  const { size, originalSize } = await savePdf(id, name, file.buffer);
   res.status(201).json({ id, size, originalSize });
+}
+
+export async function getPdfs(_req: Request, res: Response) {
+  res.json(await listPdfs());
+}
+
+export async function removePdf(req: Request<{ id: string }>, res: Response) {
+  if (!(await deletePdf(req.params.id))) {
+    res.status(404).json({ error: 'PDF not found' });
+    return;
+  }
+  res.status(204).end();
 }

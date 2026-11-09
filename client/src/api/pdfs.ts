@@ -1,17 +1,35 @@
 import { errorMessage } from './errorMessage';
 
-export interface UploadedPdf {
+const BASE_URL = '/api/pdfs';
+
+export interface Pdf {
   id: string;
+  name: string;
   // Bytes after compression, and before.
   size: number;
   originalSize: number;
+  createdAt: string;
+  // Signed S3 links, valid for at least 1 hour after the list is loaded.
+  url: string;
+  downloadUrl: string;
 }
 
-export async function uploadPdf(file: File): Promise<UploadedPdf> {
+export async function listPdfs(): Promise<Pdf[]> {
+  const res = await fetch(BASE_URL);
+  if (!res.ok) throw new Error(await errorMessage(res, 'Could not load PDFs'));
+  return res.json();
+}
+
+export async function uploadPdf(file: File): Promise<Pick<Pdf, 'id' | 'size' | 'originalSize'>> {
   const form = new FormData();
   form.append('pdf', file);
 
-  const res = await fetch('/api/pdfs', { method: 'POST', body: form });
+  const res = await fetch(BASE_URL, { method: 'POST', body: form });
   if (!res.ok) throw new Error(await errorMessage(res, 'Upload failed'));
   return res.json();
+}
+
+export async function deletePdf(id: string) {
+  const res = await fetch(`${BASE_URL}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(await errorMessage(res, 'Delete failed'));
 }

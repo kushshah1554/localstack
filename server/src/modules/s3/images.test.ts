@@ -104,7 +104,10 @@ test('the signed download url makes S3 send the file as a download', async (t) =
 
   const res = await fetch(image!.downloadUrl);
   assert.equal(res.status, 200);
-  assert.equal(res.headers.get('content-disposition'), `attachment; filename="${id}"`);
+  assert.equal(
+    res.headers.get('content-disposition'),
+    `attachment; filename="${id}"; filename*=UTF-8''${id}`
+  );
 });
 
 test('links stay the same within the hour and last 2 hours', async (t) => {

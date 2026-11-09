@@ -1,15 +1,16 @@
 import { useState, type SubmitEvent } from 'react';
-import { uploadPdf, type UploadedPdf } from '../api/pdfs';
+import { uploadPdf } from '../api/pdfs';
+import { formatSize } from '../formatSize';
 
-function formatSize(bytes: number) {
-  return bytes < 1024 * 1024 ? `${(bytes / 1024).toFixed(1)} KB` : `${(bytes / 1024 / 1024).toFixed(2)} MB`;
+interface Props {
+  onUploaded: () => void;
 }
 
-export function PdfUploadForm() {
+export function PdfUploadForm({ onUploaded }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<UploadedPdf | null>(null);
+  const [message, setMessage] = useState('');
 
   async function handleSubmit(event: SubmitEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -18,9 +19,12 @@ export function PdfUploadForm() {
     const form = event.currentTarget;
     setUploading(true);
     setError('');
-    setResult(null);
+    setMessage('');
     try {
-      setResult(await uploadPdf(file));
+      const { size, originalSize } = await uploadPdf(file);
+      const saved = Math.round((1 - size / originalSize) * 100);
+      setMessage(`Uploaded. ${formatSize(originalSize)} → ${formatSize(size)} (${saved}% smaller).`);
+      onUploaded();
       form.reset();
       setFile(null);
     } catch (err) {
@@ -29,8 +33,6 @@ export function PdfUploadForm() {
       setUploading(false);
     }
   }
-
-  const saved = result ? Math.round((1 - result.size / result.originalSize) * 100) : 0;
 
   return (
     <section className="card">
@@ -48,11 +50,7 @@ export function PdfUploadForm() {
         </button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
-      {result && (
-        <p role="status">
-          Uploaded. {formatSize(result.originalSize)} → {formatSize(result.size)} ({saved}% smaller).
-        </p>
-      )}
+      {message && <p role="status">{message}</p>}
     </section>
   );
 }

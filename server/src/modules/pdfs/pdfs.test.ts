@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { after, before, test } from 'node:test';
+import { after, before, test, type TestContext } from 'node:test';
 import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
 import { Collection } from 'mongodb';
 import { app } from '../../app.ts';
@@ -51,10 +51,31 @@ function makePdf(pageCount: number) {
   return pdf;
 }
 
-function upload(body: string, contentType = 'application/pdf') {
+function upload(body: string, contentType = 'application/pdf', name = 'upload.pdf') {
   const form = new FormData();
-  form.append('pdf', new Blob([body], { type: contentType }), 'upload.pdf');
+  form.append('pdf', new Blob([body], { type: contentType }), name);
   return fetch(api, { method: 'POST', body: form });
+}
+
+interface ListedPdf {
+  id: string;
+  name: string;
+  size: number;
+  url: string;
+  downloadUrl: string;
+}
+
+async function list(): Promise<ListedPdf[]> {
+  return (await fetch(api)).json();
+}
+
+async function uploadPdf(t: TestContext, name?: string): Promise<string> {
+  const { id } = await (await upload(makePdf(3), 'application/pdf', name)).json();
+  t.after(async () => {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `pdfs/${id}` }));
+    await pdfs.deleteOne({ _id: id });
+  });
+  return id;
 }
 
 async function listPdfKeys() {
@@ -115,4 +136,48 @@ test('a failed Mongo insert removes both files from S3', async (t) => {
 
   assert.equal(res.status, 500);
   assert.deepEqual(await listPdfKeys(), keysBefore);
+});
+
+test('list returns PDFs newest first, with signed links to view and download', async (t) => {
+  const first = await uploadPdf(t);
+  await new Promise((resolve) => setTimeout(resolve, 5)); // distinct createdAt, so the order is stable
+  const second = await uploadPdf(t, 'résumé "final".pdf');
+
+  const items = await list();
+  const ids = items.map((item) => item.id);
+  assert.ok(ids.indexOf(first) >= 0);
+  assert.ok(ids.indexOf(second) < ids.indexOf(first));
+
+  const pdf = items.find((item) => item.id === second)!;
+  assert.deepEqual(Object.keys(pdf).sort(), ['createdAt', 'downloadUrl', 'id', 'name', 'originalSize', 'size', 'url']);
+  assert.equal(pdf.name, 'résumé "final".pdf');
+
+  const view = await fetch(pdf.url);
+  assert.equal(view.status, 200);
+  assert.equal(view.headers.get('content-type'), 'application/pdf');
+  assert.equal(view.headers.get('content-disposition'), null);
+  assert.equal((await view.arrayBuffer()).byteLength, pdf.size);
+
+  const download = await fetch(pdf.downloadUrl);
+  assert.equal(
+    download.headers.get('content-disposition'),
+    `attachment; filename="r_sum_ _final_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22final%22.pdf`
+  );
+});
+
+test('delete removes the PDF from S3 and Mongo', async (t) => {
+  const id = await uploadPdf(t);
+  const pdf = (await list()).find((item) => item.id === id)!;
+
+  assert.equal((await fetch(`${api}/${id}`, { method: 'DELETE' })).status, 204);
+
+  assert.equal(await pdfs.findOne({ _id: id }), null);
+  assert.ok(!(await listPdfKeys()).includes(`pdfs/${id}`));
+  assert.ok(!(await list()).some((item) => item.id === id));
+  assert.equal((await fetch(pdf.url)).status, 404);
+});
+
+test('delete returns 404 for unknown ids', async () => {
+  const missing = '00000000-0000-0000-0000-000000000000.pdf';
+  assert.equal((await fetch(`${api}/${missing}`, { method: 'DELETE' })).status, 404);
 });

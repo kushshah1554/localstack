@@ -8,6 +8,8 @@ const MAX_MB = 10;
 export function fileUpload(field: string) {
   const parse = multer({
     storage: multer.memoryStorage(),
+    // Browsers send file names as UTF-8; the latin1 default garbles non-English names.
+    defParamCharset: 'utf8',
     limits: { fileSize: MAX_MB * 1024 * 1024 },
   }).single(field);
 

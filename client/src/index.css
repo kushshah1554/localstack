@@ -97,3 +97,29 @@ button.danger {
   align-items: center;
   justify-content: space-between;
 }
+
+.file-list {
+  padding: 0;
+  list-style: none;
+}
+
+.file-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.file-list li > div:first-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.file-list .actions {
+  gap: 12px;
+}

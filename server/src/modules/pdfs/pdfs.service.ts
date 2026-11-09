@@ -1,7 +1,8 @@
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
 import { invokeLambda } from '../lambda/lambda.client.ts';
 import { bucket, s3 } from '../s3/s3.client.ts';
-import { insertPdfRecord } from './pdfs.repository.ts';
+import { signUrl } from '../s3/s3.signer.ts';
+import { deletePdfRecord, findPdfRecord, insertPdfRecord, listPdfRecords } from './pdfs.repository.ts';
 
 const COMPRESS_FUNCTION = 'compress-pdf';
 
@@ -16,7 +17,7 @@ function deleteFromS3(key: string) {
 // 1. Upload the original to S3.  2. The Lambda compresses it into its final key.
 // 3. Save the Mongo record.  The original is always removed at the end.
 // The Lambda gets S3 keys, not the file, because a Lambda call can carry at most 6 MB.
-export async function savePdf(id: string, body: Buffer) {
+export async function savePdf(id: string, name: string, body: Buffer) {
   const rawKey = `pdfs/raw/${id}`;
   const key = `pdfs/${id}`;
 
@@ -37,7 +38,7 @@ export async function savePdf(id: string, body: Buffer) {
     }
 
     try {
-      await insertPdfRecord({ _id: id, bucket, key, ...result, createdAt: new Date() });
+      await insertPdfRecord({ _id: id, name, bucket, key, ...result, createdAt: new Date() });
     } catch (err) {
       // Without a record nobody can find the file, so don't leave it in S3.
       await deleteFromS3(key);
@@ -47,4 +48,34 @@ export async function savePdf(id: string, body: Buffer) {
   } finally {
     await deleteFromS3(rawKey);
   }
+}
+
+// Links are only signed for PDFs that have a Mongo record. Bucket and key stay internal.
+export async function listPdfs() {
+  const records = await listPdfRecords();
+  return Promise.all(
+    records.map(async (record) => {
+      // PDFs uploaded before names were stored have none, so fall back to the id.
+      const name = record.name ?? record._id;
+      return {
+        id: record._id,
+        name,
+        size: record.size,
+        originalSize: record.originalSize,
+        createdAt: record.createdAt,
+        url: await signUrl(record),
+        downloadUrl: await signUrl(record, name),
+      };
+    })
+  );
+}
+
+// S3 goes first: if the Mongo delete then fails, deleting again still works, and no hidden file is left behind.
+export async function deletePdf(id: string) {
+  const record = await findPdfRecord(id);
+  if (!record) return false;
+
+  await s3.send(new DeleteObjectCommand({ Bucket: record.bucket, Key: record.key }));
+  await deletePdfRecord(id);
+  return true;
 }
