@@ -1,0 +1,11 @@
+{
+  "name": "compress-pdf",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "bash deploy.sh"
+  },
+  "dependencies": {
+    "pdf-lib": "^1.17.1"
+  }
+}

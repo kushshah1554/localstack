@@ -1,9 +1,9 @@
 import express from 'express';
+import { fileUpload } from '../../middleware/fileUpload.ts';
 import { getImages, removeImage, uploadImage } from './images.controller.ts';
-import { imageUpload } from './images.middleware.ts';
 
 export const imagesRouter = express.Router();
 
 imagesRouter.get('/', getImages);
-imagesRouter.post('/', imageUpload, uploadImage);
+imagesRouter.post('/', fileUpload('image'), uploadImage);
 imagesRouter.delete('/:id', removeImage);

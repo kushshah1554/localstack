@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { listImages, type Image } from './api/images';
 import { ImageList } from './components/ImageList';
+import { PdfUploadForm } from './components/PdfUploadForm';
 import { UploadForm } from './components/UploadForm';
 
 // Links last at least 1 hour after loading, so refreshing every 30 minutes keeps them valid.
@@ -38,7 +39,8 @@ function App() {
 
   return (
     <main>
-      <h1>Image storage</h1>
+      <h1>File storage</h1>
+      <PdfUploadForm />
       <UploadForm onUploaded={loadImages} />
       {error && <p role="alert" className="error">{error}</p>}
       <ImageList

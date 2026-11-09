@@ -1,3 +1,5 @@
+import { errorMessage } from './errorMessage';
+
 const BASE_URL = '/api/s3/images';
 
 export interface Image {
@@ -8,11 +10,6 @@ export interface Image {
   // Signed S3 links, valid for at least 1 hour after the list is loaded.
   url: string;
   downloadUrl: string;
-}
-
-async function errorMessage(res: Response, fallback: string) {
-  const body = await res.json().catch(() => null);
-  return body?.error ?? `${fallback} (status ${res.status})`;
 }
 
 export async function listImages(): Promise<Image[]> {
