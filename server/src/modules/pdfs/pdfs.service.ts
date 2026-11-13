@@ -1,12 +1,30 @@
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
-import { invokeLambda } from '../lambda/lambda.client.ts';
 import { bucket, s3 } from '../s3/s3.client.ts';
 import { signUrl } from '../s3/s3.signer.ts';
-import { deletePdfRecord, findPdfRecord, insertPdfRecord, listPdfRecords } from './pdfs.repository.ts';
+import { sendMessage } from '../sqs/sqs.client.ts';
+import {
+  deletePdfRecord,
+  findPdfRecord,
+  finishPdfRecord,
+  insertPdfRecord,
+  listPdfRecords,
+} from './pdfs.repository.ts';
 
-const COMPRESS_FUNCTION = 'compress-pdf';
+// Created by lambdas/compress-pdf/deploy.sh.
+export const COMPRESS_QUEUE = 'pdf-compress';
+export const RESULTS_QUEUE = 'pdf-results';
+export const COMPRESS_DLQ = 'pdf-compress-dlq';
 
-type CompressResult = { size: number; originalSize: number } | { error: 'INVALID_PDF' };
+// Sent to the job queue; the Lambda reads it.
+export interface CompressJob {
+  id: string;
+  bucket: string;
+  sourceKey: string;
+  targetKey: string;
+}
+
+// Sent by the Lambda to the results queue.
+export type CompressResult = { id: string; size: number } | { id: string; error: 'INVALID_PDF' };
 
 function deleteFromS3(key: string) {
   return s3
@@ -14,57 +32,77 @@ function deleteFromS3(key: string) {
     .catch((err) => console.error('Could not delete', key, err));
 }
 
-// 1. Upload the original to S3.  2. The Lambda compresses it into its final key.
-// 3. Save the Mongo record.  The original is always removed at the end.
-// The Lambda gets S3 keys, not the file, because a Lambda call can carry at most 6 MB.
+// 1. Upload the original to S3.  2. Save the record as "processing".  3. Queue the compression job.
+// The user gets an answer now; the Lambda compresses in the background (see handleCompressResult).
 export async function savePdf(id: string, name: string, body: Buffer) {
-  const rawKey = `pdfs/raw/${id}`;
-  const key = `pdfs/${id}`;
+  const job: CompressJob = { id, bucket, sourceKey: `pdfs/raw/${id}`, targetKey: `pdfs/${id}` };
 
   await s3.send(
-    new PutObjectCommand({ Bucket: bucket, Key: rawKey, Body: body, ContentType: 'application/pdf' })
+    new PutObjectCommand({ Bucket: bucket, Key: job.sourceKey, Body: body, ContentType: 'application/pdf' })
   );
 
   try {
-    const result = await invokeLambda<CompressResult>(COMPRESS_FUNCTION, {
+    await insertPdfRecord({
+      _id: id,
+      name,
       bucket,
-      sourceKey: rawKey,
-      targetKey: key,
+      key: job.targetKey,
+      status: 'processing',
+      originalSize: body.length,
+      createdAt: new Date(),
     });
-    if ('error' in result) {
-      throw Object.assign(new Error('Could not read this PDF. It may be damaged or password-protected.'), {
-        status: 422,
-      });
-    }
+  } catch (err) {
+    await deleteFromS3(job.sourceKey);
+    throw err;
+  }
 
-    try {
-      await insertPdfRecord({ _id: id, name, bucket, key, ...result, createdAt: new Date() });
-    } catch (err) {
-      // Without a record nobody can find the file, so don't leave it in S3.
-      await deleteFromS3(key);
-      throw err;
-    }
-    return result;
-  } finally {
-    await deleteFromS3(rawKey);
+  try {
+    await sendMessage(COMPRESS_QUEUE, job);
+  } catch (err) {
+    // Without a job the record would say "processing" forever, so undo both.
+    await deletePdfRecord(id);
+    await deleteFromS3(job.sourceKey);
+    throw err;
   }
 }
 
-// Links are only signed for PDFs that have a Mongo record. Bucket and key stay internal.
+// From the results queue. The Lambda has already removed the original.
+export async function handleCompressResult(result: CompressResult) {
+  const found =
+    'error' in result
+      ? await finishPdfRecord(result.id, { status: 'failed' })
+      : await finishPdfRecord(result.id, { status: 'ready', size: result.size });
+
+  // Deleted while it was processing: the compressed file has no record, so remove it.
+  if (!found && !(await findPdfRecord(result.id))) await deleteFromS3(`pdfs/${result.id}`);
+}
+
+// From the dead-letter queue: the Lambda crashed on this job every time it was tried.
+export async function handleFailedJob(job: CompressJob) {
+  console.error('PDF compression kept failing, marking it failed', job.id);
+  await finishPdfRecord(job.id, { status: 'failed' });
+  await deleteFromS3(job.sourceKey);
+}
+
+// Links are only signed for PDFs that are ready. Bucket and key stay internal.
 export async function listPdfs() {
   const records = await listPdfRecords();
   return Promise.all(
     records.map(async (record) => {
       // PDFs uploaded before names were stored have none, so fall back to the id.
       const name = record.name ?? record._id;
+      // PDFs uploaded before the queue existed have no status but are compressed.
+      const status = record.status ?? 'ready';
+      const ready = status === 'ready';
       return {
         id: record._id,
         name,
+        status,
         size: record.size,
         originalSize: record.originalSize,
         createdAt: record.createdAt,
-        url: await signUrl(record),
-        downloadUrl: await signUrl(record, name),
+        url: ready ? await signUrl(record) : undefined,
+        downloadUrl: ready ? await signUrl(record, name) : undefined,
       };
     })
   );

@@ -2,6 +2,12 @@ import { useState } from 'react';
 import { deletePdf, type Pdf } from '../api/pdfs';
 import { formatSize } from '../formatSize';
 
+function statusText(pdf: Pdf) {
+  if (pdf.status === 'processing') return `Compressing… (${formatSize(pdf.originalSize)})`;
+  if (pdf.status === 'failed') return 'Failed: the PDF may be damaged or password-protected';
+  return `${formatSize(pdf.size ?? 0)} (was ${formatSize(pdf.originalSize)})`;
+}
+
 interface Props {
   pdfs: Pdf[];
   onDeleted: (id: string) => void;
@@ -39,14 +45,17 @@ export function PdfList({ pdfs, onDeleted }: Props) {
               <div>
                 <strong>{pdf.name}</strong>
                 <small>
-                  {formatSize(pdf.size)} (was {formatSize(pdf.originalSize)}) ·{' '}
-                  {new Date(pdf.createdAt).toLocaleString()}
+                  {statusText(pdf)} · {new Date(pdf.createdAt).toLocaleString()}
                 </small>
               </div>
               <div className="actions">
-                <a href={pdf.url} target="_blank" rel="noreferrer">Open</a>
-                {/* S3 sends this link as a download, so no `download` attribute is needed. */}
-                <a href={pdf.downloadUrl}>Download</a>
+                {pdf.status === 'ready' && (
+                  <>
+                    <a href={pdf.url} target="_blank" rel="noreferrer">Open</a>
+                    {/* S3 sends this link as a download, so no `download` attribute is needed. */}
+                    <a href={pdf.downloadUrl}>Download</a>
+                  </>
+                )}
                 <button
                   type="button"
                   className="danger"

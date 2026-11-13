@@ -17,8 +17,9 @@ export async function uploadPdf(req: Request, res: Response) {
   const id = `${randomUUID()}.pdf`;
   // The name comes from the user, so it is only shown and used as the download name, never as an S3 key.
   const name = file.originalname.slice(0, 200) || id;
-  const { size, originalSize } = await savePdf(id, name, file.buffer);
-  res.status(201).json({ id, size, originalSize });
+  await savePdf(id, name, file.buffer);
+  // 202 Accepted: stored, but compression is still running in the background.
+  res.status(202).json({ id, status: 'processing' });
 }
 
 export async function getPdfs(_req: Request, res: Response) {

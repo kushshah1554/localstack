@@ -10,6 +10,8 @@ import { UploadForm } from './components/UploadForm';
 const REFRESH_EVERY_MS = 30 * 60 * 1000;
 // Stops a broken image from reloading the list over and over.
 const MIN_RETRY_GAP_MS = 60 * 1000;
+// How often to check on PDFs that are still being compressed.
+const PROCESSING_CHECK_MS = 3000;
 
 function App() {
   const [images, setImages] = useState<Image[]>([]);
@@ -51,6 +53,15 @@ function App() {
     // Run once on mount: the loaders only use state setters and a ref, which never change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Compression runs in the background, so keep checking until no PDF is processing.
+  const anyProcessing = pdfs.some((pdf) => pdf.status === 'processing');
+  useEffect(() => {
+    if (!anyProcessing) return;
+    const timer = setInterval(loadPdfs, PROCESSING_CHECK_MS);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [anyProcessing]);
 
   return (
     <main>

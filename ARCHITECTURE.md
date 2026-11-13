@@ -16,15 +16,22 @@ flowchart LR
 
     subgraph LocalStack["LocalStack (:4566), pretends to be AWS"]
         S3[("S3 bucket<br/>my-first-bucket<br/>images/  pdfs/  pdfs/raw/")]
+        Jobs[["SQS pdf-compress<br/>(DLQ: pdf-compress-dlq)"]]
         Lambda["Lambda<br/>compress-pdf"]
+        Results[["SQS pdf-results"]]
     end
 
     Mongo[("MongoDB (:27017)<br/>e_shop<br/>images, pdfs")]
+    Worker["PDF worker<br/>(inside Express)"]
 
     Browser -- "/api/... (Vite proxy)<br/>list, upload, delete" --> Routes
     Services -- "store / delete files" --> S3
-    Services -- "invoke and wait" --> Lambda
+    Services -- "send job" --> Jobs
+    Jobs -- "triggers" --> Lambda
     Lambda -- "read original,<br/>write compressed" --> S3
+    Lambda -- "send result" --> Results
+    Results --> Worker
+    Worker -- "status ready / failed" --> Mongo
     Services -- "records" --> Mongo
     Browser -- "signed links:<br/>view and download files directly" --> S3
 ```
@@ -54,33 +61,39 @@ sequenceDiagram
     E-->>B: 201 { id }
 ```
 
-## 3. PDF upload (with Lambda compression)
+## 3. PDF upload (SQS + Lambda compression in the background)
 
 ```mermaid
 sequenceDiagram
     participant B as Browser
     participant E as Express
     participant S as S3
+    participant Q as SQS pdf-compress
     participant L as Lambda compress-pdf
+    participant R as SQS pdf-results
+    participant W as Worker (in Express)
     participant M as MongoDB
 
     B->>E: POST /api/pdfs (form field "pdf")
     E->>E: multer reads file, check it starts with %PDF-
-    E->>S: 1. put original at pdfs/raw/<id>
-    E->>L: 2. invoke { bucket, sourceKey, targetKey }
-    L->>S: read pdfs/raw/<id>
-    L->>L: compress with pdf-lib (keeps the smaller file)
-    L->>S: 3. put compressed at pdfs/<id>
-    L-->>E: { size, originalSize }  or  { error: INVALID_PDF }
-    E->>M: 4. insert record (name, size, originalSize)
-    alt Mongo insert fails
-        E->>S: delete pdfs/<id>
-    end
-    E->>S: 5. always delete pdfs/raw/<id>
-    E-->>B: 201 { id, size, originalSize }  (422 for a damaged PDF)
+    E->>S: put original at pdfs/raw/<id>
+    E->>M: insert record, status "processing"
+    E->>Q: send job { id, bucket, sourceKey, targetKey }
+    E-->>B: 202 { id, status: "processing" }
+
+    Q->>L: triggers the Lambda (1 job at a time)
+    L->>S: read original, compress, put pdfs/<id>
+    L->>R: { id, size }  or  { id, error: INVALID_PDF }
+    L->>S: delete pdfs/raw/<id>
+    R->>W: worker long-polls the queue
+    W->>M: status "ready" + size, or "failed"
+    B->>E: page checks GET /api/pdfs every 3 s until nothing is processing
 ```
 
-The Lambda receives S3 keys instead of the file, because a Lambda call can carry at most 6 MB.
+- **Lambda crashes:** SQS retries the job. After 3 failures it moves to `pdf-compress-dlq`, and the worker marks the PDF failed and deletes the original.
+- **Delete while processing:** when the result arrives there is no record, so the worker deletes the compressed file.
+- The Lambda receives S3 keys instead of the file, because an SQS message can carry at most 256 KB.
+- `lambdas/compress-pdf/deploy.sh` creates the queues, the DLQs, the Lambda and the SQS → Lambda trigger.
 
 ## 4. Listing, viewing and downloading
 
@@ -118,16 +131,16 @@ localstack/
 │       └── formatSize.ts
 ├── server/                      Express + TypeScript (run directly by Node 24)
 │   └── src/
-│       ├── index.ts             connect Mongo, start server
+│       ├── index.ts             connect Mongo, start PDF worker, start server
 │       ├── app.ts               mounts routers and error handler
 │       ├── config/              aws.ts (shared AWS settings), db.ts (Mongo)
 │       ├── middleware/          fileUpload.ts (multer), errorHandler.ts
 │       └── modules/
 │           ├── s3/              s3.client, s3.signer, images.* (routes → controller → service → repository)
-│           ├── lambda/          lambda.client (invokeLambda)
-│           └── pdfs/            pdfs.* (routes → controller → service → repository)
+│           ├── sqs/             sqs.client (sendMessage, pollQueue)
+│           └── pdfs/            pdfs.* (routes → controller → service → repository) + pdfs.worker
 └── lambdas/
-    └── compress-pdf/            index.mjs (the Lambda), deploy.sh
+    └── compress-pdf/            index.mjs (the Lambda), deploy.sh (queues + Lambda + trigger)
 ```
 
 Each feature module has the same layers:

@@ -1,20 +1,30 @@
-// Needs LocalStack with the bucket and the compress-pdf Lambda (lambdas/compress-pdf/deploy.sh), and MongoDB.
+// Needs LocalStack with the bucket, queues and Lambda (lambdas/compress-pdf/deploy.sh), and MongoDB.
 import assert from 'node:assert/strict';
 import type { Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { after, before, test, type TestContext } from 'node:test';
-import { DeleteObjectCommand, GetObjectCommand, ListObjectsV2Command } from '@aws-sdk/client-s3';
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  ListObjectsV2Command,
+  PutObjectCommand,
+} from '@aws-sdk/client-s3';
 import { Collection } from 'mongodb';
 import { app } from '../../app.ts';
 import { closeDb, connectDb } from '../../config/db.ts';
 import { bucket, s3 } from '../s3/s3.client.ts';
 import { pdfs } from './pdfs.repository.ts';
+import { handleCompressResult, handleFailedJob } from './pdfs.service.ts';
+import { startPdfWorker } from './pdfs.worker.ts';
 
 let server: Server;
 let api: string;
+let stopWorker: () => Promise<void>;
 
 before(async () => {
   await connectDb();
+  stopWorker = startPdfWorker();
   server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
   api = `http://localhost:${(server.address() as AddressInfo).port}/api/pdfs`;
@@ -22,6 +32,7 @@ before(async () => {
 
 after(async () => {
   server.close();
+  await stopWorker();
   await closeDb();
 });
 
@@ -51,31 +62,51 @@ function makePdf(pageCount: number) {
   return pdf;
 }
 
+interface ListedPdf {
+  id: string;
+  name: string;
+  status: 'processing' | 'ready' | 'failed';
+  size?: number;
+  originalSize: number;
+  url?: string;
+  downloadUrl?: string;
+}
+
 function upload(body: string, contentType = 'application/pdf', name = 'upload.pdf') {
   const form = new FormData();
   form.append('pdf', new Blob([body], { type: contentType }), name);
   return fetch(api, { method: 'POST', body: form });
 }
 
-interface ListedPdf {
-  id: string;
-  name: string;
-  size: number;
-  url: string;
-  downloadUrl: string;
+function cleanUpAfter(t: TestContext, id: string) {
+  t.after(async () => {
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `pdfs/${id}` }));
+    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `pdfs/raw/${id}` }));
+    await pdfs.deleteOne({ _id: id });
+  });
+}
+
+async function uploadPdf(t: TestContext, body = makePdf(3), name?: string): Promise<string> {
+  const res = await upload(body, 'application/pdf', name);
+  assert.equal(res.status, 202);
+  const { id, status } = await res.json();
+  assert.equal(status, 'processing');
+  cleanUpAfter(t, id);
+  return id;
 }
 
 async function list(): Promise<ListedPdf[]> {
   return (await fetch(api)).json();
 }
 
-async function uploadPdf(t: TestContext, name?: string): Promise<string> {
-  const { id } = await (await upload(makePdf(3), 'application/pdf', name)).json();
-  t.after(async () => {
-    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `pdfs/${id}` }));
-    await pdfs.deleteOne({ _id: id });
-  });
-  return id;
+// Compression runs in the background (SQS → Lambda → SQS → worker), so wait for it to finish.
+async function waitUntilDone(id: string): Promise<ListedPdf> {
+  for (let i = 0; i < 120; i++) {
+    const pdf = (await list()).find((item) => item.id === id);
+    if (pdf && pdf.status !== 'processing') return pdf;
+    await sleep(250);
+  }
+  throw new Error(`PDF ${id} was still processing after 30 s`);
 }
 
 async function listPdfKeys() {
@@ -83,30 +114,35 @@ async function listPdfKeys() {
   return Contents.map((object) => object.Key);
 }
 
-test('upload compresses the PDF with the Lambda, stores it in S3 and saves the record', async (t) => {
+test('upload answers at once, then the queue and Lambda compress the PDF in the background', async (t) => {
   const original = makePdf(30);
+  const id = await uploadPdf(t, original);
 
-  const res = await upload(original);
-  assert.equal(res.status, 201);
-  const { id, size, originalSize } = await res.json();
-  t.after(async () => {
-    await s3.send(new DeleteObjectCommand({ Bucket: bucket, Key: `pdfs/${id}` }));
-    await pdfs.deleteOne({ _id: id });
-  });
+  const processing = (await list()).find((item) => item.id === id)!;
+  assert.equal(processing.status, 'processing');
+  assert.equal(processing.originalSize, original.length);
+  assert.equal(processing.url, undefined);
 
-  assert.equal(originalSize, original.length);
-  assert.ok(size < originalSize, `expected ${size} < ${originalSize}`);
+  const pdf = await waitUntilDone(id);
+  assert.equal(pdf.status, 'ready');
+  assert.ok(pdf.size! < original.length, `expected ${pdf.size} < ${original.length}`);
 
   const stored = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `pdfs/${id}` }));
   const bytes = await stored.Body!.transformToByteArray();
-  assert.equal(bytes.length, size);
+  assert.equal(bytes.length, pdf.size);
   assert.equal(Buffer.from(bytes.subarray(0, 5)).toString(), '%PDF-');
-
-  const record = await pdfs.findOne({ _id: id });
-  assert.equal(record?.key, `pdfs/${id}`);
-  assert.equal(record?.size, size);
-  assert.equal(record?.originalSize, originalSize);
   assert.ok(!(await listPdfKeys()).includes(`pdfs/raw/${id}`), 'original upload is removed');
+});
+
+test('a damaged PDF ends up failed and leaves no files behind', async (t) => {
+  const id = await uploadPdf(t, '%PDF-1.4 this is not really a pdf');
+
+  const pdf = await waitUntilDone(id);
+  assert.equal(pdf.status, 'failed');
+  assert.equal(pdf.url, undefined);
+  const keys = await listPdfKeys();
+  assert.ok(!keys.includes(`pdfs/${id}`));
+  assert.ok(!keys.includes(`pdfs/raw/${id}`));
 });
 
 test('rejects files that are not PDFs', async () => {
@@ -114,18 +150,7 @@ test('rejects files that are not PDFs', async () => {
   assert.equal((await upload('hello', 'application/pdf')).status, 415);
 });
 
-test('a damaged PDF gets 422 and leaves nothing behind', async () => {
-  const keysBefore = await listPdfKeys();
-  const countBefore = await pdfs.countDocuments();
-
-  const res = await upload('%PDF-1.4 this is not really a pdf');
-
-  assert.equal(res.status, 422);
-  assert.deepEqual(await listPdfKeys(), keysBefore);
-  assert.equal(await pdfs.countDocuments(), countBefore);
-});
-
-test('a failed Mongo insert removes both files from S3', async (t) => {
+test('a failed Mongo insert removes the original from S3', async (t) => {
   const keysBefore = await listPdfKeys();
   t.mock.method(Collection.prototype, 'insertOne', async () => {
     throw new Error('simulated Mongo failure');
@@ -138,27 +163,29 @@ test('a failed Mongo insert removes both files from S3', async (t) => {
   assert.deepEqual(await listPdfKeys(), keysBefore);
 });
 
-test('list returns PDFs newest first, with signed links to view and download', async (t) => {
-  const first = await uploadPdf(t);
-  await new Promise((resolve) => setTimeout(resolve, 5)); // distinct createdAt, so the order is stable
-  const second = await uploadPdf(t, 'résumé "final".pdf');
+test('list gives ready PDFs signed links to view and download', async (t) => {
+  const id = await uploadPdf(t, makePdf(3), 'résumé "final".pdf');
+  const pdf = await waitUntilDone(id);
 
-  const items = await list();
-  const ids = items.map((item) => item.id);
-  assert.ok(ids.indexOf(first) >= 0);
-  assert.ok(ids.indexOf(second) < ids.indexOf(first));
-
-  const pdf = items.find((item) => item.id === second)!;
-  assert.deepEqual(Object.keys(pdf).sort(), ['createdAt', 'downloadUrl', 'id', 'name', 'originalSize', 'size', 'url']);
+  assert.deepEqual(Object.keys(pdf).sort(), [
+    'createdAt',
+    'downloadUrl',
+    'id',
+    'name',
+    'originalSize',
+    'size',
+    'status',
+    'url',
+  ]);
   assert.equal(pdf.name, 'résumé "final".pdf');
 
-  const view = await fetch(pdf.url);
+  const view = await fetch(pdf.url!);
   assert.equal(view.status, 200);
   assert.equal(view.headers.get('content-type'), 'application/pdf');
   assert.equal(view.headers.get('content-disposition'), null);
   assert.equal((await view.arrayBuffer()).byteLength, pdf.size);
 
-  const download = await fetch(pdf.downloadUrl);
+  const download = await fetch(pdf.downloadUrl!);
   assert.equal(
     download.headers.get('content-disposition'),
     `attachment; filename="r_sum_ _final_.pdf"; filename*=UTF-8''r%C3%A9sum%C3%A9%20%22final%22.pdf`
@@ -167,17 +194,40 @@ test('list returns PDFs newest first, with signed links to view and download', a
 
 test('delete removes the PDF from S3 and Mongo', async (t) => {
   const id = await uploadPdf(t);
-  const pdf = (await list()).find((item) => item.id === id)!;
+  const pdf = await waitUntilDone(id);
 
   assert.equal((await fetch(`${api}/${id}`, { method: 'DELETE' })).status, 204);
 
   assert.equal(await pdfs.findOne({ _id: id }), null);
   assert.ok(!(await listPdfKeys()).includes(`pdfs/${id}`));
-  assert.ok(!(await list()).some((item) => item.id === id));
-  assert.equal((await fetch(pdf.url)).status, 404);
+  assert.equal((await fetch(pdf.url!)).status, 404);
 });
 
 test('delete returns 404 for unknown ids', async () => {
   const missing = '00000000-0000-0000-0000-000000000000.pdf';
   assert.equal((await fetch(`${api}/${missing}`, { method: 'DELETE' })).status, 404);
+});
+
+// The message handlers are tested directly, since these cases are hard to cause through SQS.
+test('a result for a PDF deleted while processing removes the orphan file', async (t) => {
+  const id = 'deleted-while-processing.pdf';
+  cleanUpAfter(t, id);
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `pdfs/${id}`, Body: 'x' }));
+
+  await handleCompressResult({ id, size: 1 });
+
+  assert.ok(!(await listPdfKeys()).includes(`pdfs/${id}`));
+});
+
+test('a late failure or repeated result never changes a finished PDF', async (t) => {
+  const id = await uploadPdf(t);
+  const ready = await waitUntilDone(id);
+  t.mock.method(console, 'error', () => {});
+
+  await handleFailedJob({ id, bucket, sourceKey: `pdfs/raw/${id}`, targetKey: `pdfs/${id}` });
+  await handleCompressResult({ id, error: 'INVALID_PDF' });
+
+  const record = await pdfs.findOne({ _id: id });
+  assert.equal(record?.status, 'ready');
+  assert.equal(record?.size, ready.size);
 });

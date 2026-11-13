@@ -1,6 +1,5 @@
 import { useState, type SubmitEvent } from 'react';
 import { uploadPdf } from '../api/pdfs';
-import { formatSize } from '../formatSize';
 
 interface Props {
   onUploaded: () => void;
@@ -21,9 +20,8 @@ export function PdfUploadForm({ onUploaded }: Props) {
     setError('');
     setMessage('');
     try {
-      const { size, originalSize } = await uploadPdf(file);
-      const saved = Math.round((1 - size / originalSize) * 100);
-      setMessage(`Uploaded. ${formatSize(originalSize)} → ${formatSize(size)} (${saved}% smaller).`);
+      await uploadPdf(file);
+      setMessage(`Uploaded ${file.name}. It is being compressed and will show as ready in the list.`);
       onUploaded();
       form.reset();
       setFile(null);
@@ -46,7 +44,7 @@ export function PdfUploadForm({ onUploaded }: Props) {
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
         <button type="submit" disabled={!file || uploading}>
-          {uploading ? 'Uploading and compressing…' : 'Upload'}
+          {uploading ? 'Uploading…' : 'Upload'}
         </button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
