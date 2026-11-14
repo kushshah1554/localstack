@@ -2,10 +2,41 @@ import { useState } from 'react';
 import { deletePdf, type Pdf } from '../api/pdfs';
 import { formatSize } from '../formatSize';
 
-function statusText(pdf: Pdf) {
-  if (pdf.status === 'processing') return `Compressing… (${formatSize(pdf.originalSize)})`;
-  if (pdf.status === 'failed') return 'Failed: the PDF may be damaged or password-protected';
-  return `${formatSize(pdf.size ?? 0)} (was ${formatSize(pdf.originalSize)})`;
+const dateFormat = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+// The bar's full width is the original file; the hatched part is what compression removed.
+function SizeStatus({ pdf }: { pdf: Pdf }) {
+  if (pdf.status === 'processing') {
+    return (
+      <>
+        <div className="size-bar processing" aria-hidden="true"><span /></div>
+        <small>Compressing {formatSize(pdf.originalSize)}…</small>
+      </>
+    );
+  }
+  if (pdf.status === 'failed') {
+    return (
+      <small className="error">
+        Couldn't compress this file. It may be damaged or password-protected. Delete it and try another copy.
+      </small>
+    );
+  }
+
+  const size = pdf.size ?? pdf.originalSize;
+  const ratio = pdf.originalSize > 0 ? Math.min(1, size / pdf.originalSize) : 1;
+  const saved = Math.round((1 - ratio) * 100);
+  return (
+    <>
+      <div className="size-bar" aria-hidden="true">
+        <span style={{ width: `${ratio * 100}%` }} />
+      </div>
+      <small>
+        {saved >= 1
+          ? `${formatSize(size)}, down from ${formatSize(pdf.originalSize)} (${saved}% smaller)`
+          : `${formatSize(size)}, already as small as it gets`}
+      </small>
+    </>
+  );
 }
 
 interface Props {
@@ -33,20 +64,18 @@ export function PdfList({ pdfs, onDeleted }: Props) {
   }
 
   return (
-    <section className="card">
-      <h2>PDFs</h2>
+    <>
       {error && <p role="alert" className="error">{error}</p>}
       {pdfs.length === 0 ? (
-        <p>No PDFs yet.</p>
+        <p className="empty">No PDFs yet. Choose one above and it's compressed as it uploads.</p>
       ) : (
         <ul className="file-list">
           {pdfs.map((pdf) => (
             <li key={pdf.id}>
-              <div>
+              <div className="file-info">
                 <strong>{pdf.name}</strong>
-                <small>
-                  {statusText(pdf)} · {new Date(pdf.createdAt).toLocaleString()}
-                </small>
+                <SizeStatus pdf={pdf} />
+                <small className="date">{dateFormat.format(new Date(pdf.createdAt))}</small>
               </div>
               <div className="actions">
                 {pdf.status === 'ready' && (
@@ -69,6 +98,6 @@ export function PdfList({ pdfs, onDeleted }: Props) {
           ))}
         </ul>
       )}
-    </section>
+    </>
   );
 }

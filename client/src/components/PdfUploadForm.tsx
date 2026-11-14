@@ -21,7 +21,7 @@ export function PdfUploadForm({ onUploaded }: Props) {
     setMessage('');
     try {
       await uploadPdf(file);
-      setMessage(`Uploaded ${file.name}. It is being compressed and will show as ready in the list.`);
+      setMessage(`Uploaded ${file.name}. It's compressing now and shows its new size below when done.`);
       onUploaded();
       form.reset();
       setFile(null);
@@ -33,10 +33,9 @@ export function PdfUploadForm({ onUploaded }: Props) {
   }
 
   return (
-    <section className="card">
-      <h2>Upload a PDF</h2>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="pdf">PDF up to 10 MB. It is compressed before it is stored.</label>
+    <>
+      <form className="upload" onSubmit={handleSubmit}>
+        <label htmlFor="pdf">Choose a PDF up to 10 MB</label>
         <input
           id="pdf"
           type="file"
@@ -44,11 +43,11 @@ export function PdfUploadForm({ onUploaded }: Props) {
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
         <button type="submit" disabled={!file || uploading}>
-          {uploading ? 'Uploading…' : 'Upload'}
+          {uploading ? 'Uploading…' : 'Upload PDF'}
         </button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
-      {message && <p role="status">{message}</p>}
-    </section>
+      {message && <p role="status" className="note">{message}</p>}
+    </>
   );
 }

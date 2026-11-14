@@ -27,11 +27,10 @@ export function ImageList({ images, onDeleted, onImageError }: Props) {
   }
 
   return (
-    <section className="card">
-      <h2>Images</h2>
+    <>
       {error && <p role="alert" className="error">{error}</p>}
       {images.length === 0 ? (
-        <p>No images yet.</p>
+        <p className="empty">No images yet. Choose one above to add it.</p>
       ) : (
         <ul className="gallery">
           {images.map((image) => (
@@ -58,6 +57,6 @@ export function ImageList({ images, onDeleted, onImageError }: Props) {
           ))}
         </ul>
       )}
-    </section>
+    </>
   );
 }

@@ -65,19 +65,28 @@ function App() {
 
   return (
     <main>
-      <h1>File storage</h1>
-      <PdfUploadForm onUploaded={loadPdfs} />
+      <header>
+        <h1>Your files</h1>
+        <p>PDFs are compressed as they upload, so they take up less space.</p>
+      </header>
       {error && <p role="alert" className="error">{error}</p>}
-      <PdfList
-        pdfs={pdfs}
-        onDeleted={(id) => setPdfs((current) => current.filter((pdf) => pdf.id !== id))}
-      />
-      <UploadForm onUploaded={loadImages} />
-      <ImageList
-        images={images}
-        onDeleted={(id) => setImages((current) => current.filter((image) => image.id !== id))}
-        onImageError={handleImageError}
-      />
+      <section aria-labelledby="pdfs-heading">
+        <h2 id="pdfs-heading">PDFs</h2>
+        <PdfUploadForm onUploaded={loadPdfs} />
+        <PdfList
+          pdfs={pdfs}
+          onDeleted={(id) => setPdfs((current) => current.filter((pdf) => pdf.id !== id))}
+        />
+      </section>
+      <section aria-labelledby="images-heading">
+        <h2 id="images-heading">Images</h2>
+        <UploadForm onUploaded={loadImages} />
+        <ImageList
+          images={images}
+          onDeleted={(id) => setImages((current) => current.filter((image) => image.id !== id))}
+          onImageError={handleImageError}
+        />
+      </section>
     </main>
   );
 }

@@ -1,104 +1,179 @@
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
-  --border: #d4d4d8;
-  --accent: #2563eb;
-  --error: #dc2626;
+  color-scheme: light;
+  --page: #e9edf1;
+  --sheet: #ffffff;
+  --ink: #17233a;
+  --muted: #56627a;
+  --rule: #d3dae3;
+  --accent: #3346d3;
+  --accent-ink: #ffffff;
+  --danger: #c2352b;
+  --cut: #b9c3d6;
+
+  font-family: 'Bricolage Grotesque', system-ui, sans-serif;
+  font-optical-sizing: auto;
+  font-size: 100%;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --border: #3f3f46;
-    --accent: #60a5fa;
-    --error: #f87171;
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+    --page: #111a27;
+    --sheet: #1a2536;
+    --ink: #e4e9f1;
+    --muted: #9aa6bb;
+    --rule: #2c3a50;
+    --accent: #8c9bff;
+    --accent-ink: #111a27;
+    --danger: #ff8a7f;
+    --cut: #3d4d68;
   }
 }
 
 body {
   margin: 0;
+  background: var(--page);
 }
 
 main {
-  max-width: 720px;
+  max-width: 46rem;
   margin: 0 auto;
-  padding: 16px;
+  padding: 3rem 1rem 4rem;
 }
 
-.card {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
+/* Header: the wide, heavy cut of the typeface carries the page's personality. */
+header {
+  margin-bottom: 3rem;
 }
 
-.card h2 {
-  margin-top: 0;
-  font-size: 1.1rem;
+h1 {
+  margin: 0;
+  font-size: clamp(2.75rem, 9vw, 4.5rem);
+  font-weight: 800;
+  font-stretch: 75%;
+  line-height: 0.95;
+  letter-spacing: -0.02em;
 }
 
-form {
+header p {
+  margin: 0.75rem 0 0;
+  max-width: 34rem;
+  color: var(--muted);
+  font-size: 1.125rem;
+}
+
+section + section {
+  margin-top: 3.5rem;
+}
+
+h2 {
+  margin: 0 0 1rem;
+  font-size: 1.75rem;
+  font-weight: 700;
+  font-stretch: 85%;
+  line-height: 1.1;
+}
+
+p {
+  margin: 0.75rem 0;
+}
+
+a {
+  color: var(--accent);
+  font-weight: 600;
+  text-underline-offset: 0.2em;
+}
+
+:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Upload: one white sheet with the file picker and its submit button. */
+.upload {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 8px;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: var(--sheet);
+  border: 2px dashed var(--rule);
+  border-radius: 12px;
 }
 
-form label {
+.upload label {
   flex-basis: 100%;
-  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.upload input[type='file'] {
+  flex: 1 1 14rem;
+  min-width: 0;
+  color: var(--muted);
+  font: inherit;
+}
+
+.upload input[type='file']::file-selector-button {
+  margin-right: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border: 1.5px solid var(--ink);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
 }
 
 button {
-  padding: 8px 16px;
+  padding: 0.6rem 1.1rem;
   border: 0;
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--accent);
-  color: #fff;
+  color: var(--accent-ink);
   font: inherit;
+  font-weight: 700;
   cursor: pointer;
 }
 
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
 }
 
+/* Delete stays quiet until someone reaches for it. */
 button.danger {
-  background: var(--error);
+  padding: 0.25rem 0;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+}
+
+button.danger:hover:not(:disabled),
+button.danger:focus-visible {
+  color: var(--danger);
 }
 
 .error {
-  color: var(--error);
+  color: var(--danger);
 }
 
-.gallery {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 16px;
-  padding: 0;
-  list-style: none;
+.note,
+.empty {
+  color: var(--muted);
 }
 
-.gallery li {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
+.empty {
+  margin-top: 1.25rem;
 }
 
-.gallery img {
-  width: 100%;
-  aspect-ratio: 1;
-  object-fit: cover;
-  border-radius: 6px;
-}
-
-.actions {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
+/* PDF list */
 .file-list {
+  margin: 1.25rem 0 0;
   padding: 0;
   list-style: none;
 }
@@ -106,20 +181,101 @@ button.danger {
 .file-list li {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
-  gap: 8px 16px;
-  padding: 10px 0;
-  border-top: 1px solid var(--border);
+  gap: 0.75rem 1.5rem;
+  padding: 1.1rem 0;
+  border-bottom: 1px solid var(--rule);
 }
 
-.file-list li > div:first-child {
+.file-info {
   display: flex;
+  flex: 1 1 18rem;
   flex-direction: column;
+  gap: 0.35rem;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.file-list .actions {
-  gap: 12px;
+.file-info strong {
+  font-size: 1.0625rem;
+}
+
+.file-info small {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.file-info small.error {
+  color: var(--danger);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+/* Size bar: full width = original file, solid = what's stored, hatched = what compression removed. */
+.size-bar {
+  height: 10px;
+  margin: 0.2rem 0;
+  border-radius: 5px;
+  overflow: hidden;
+  background: repeating-linear-gradient(-45deg, var(--cut) 0 3px, transparent 3px 7px);
+  box-shadow: inset 0 0 0 1px var(--cut);
+}
+
+.size-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  border-radius: 5px;
+}
+
+.size-bar.processing span {
+  width: 35%;
+  animation: compress 1.4s ease-in-out infinite alternate;
+}
+
+@keyframes compress {
+  from { margin-left: 0; }
+  to { margin-left: 65%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .size-bar.processing span {
+    animation: none;
+    width: 100%;
+    opacity: 0.4;
+  }
+}
+
+/* Image gallery */
+.gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
+  gap: 1.25rem;
+  margin: 1.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.gallery li {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.gallery img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--sheet);
+}
+
+.gallery .actions {
+  justify-content: space-between;
 }

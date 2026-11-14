@@ -30,10 +30,9 @@ export function UploadForm({ onUploaded }: Props) {
   }
 
   return (
-    <section className="card">
-      <h2>Upload an image</h2>
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="image">JPEG, PNG, WebP or GIF, up to 10 MB</label>
+    <>
+      <form className="upload" onSubmit={handleSubmit}>
+        <label htmlFor="image">Choose a JPEG, PNG, WebP or GIF up to 10 MB</label>
         <input
           id="image"
           type="file"
@@ -41,10 +40,10 @@ export function UploadForm({ onUploaded }: Props) {
           onChange={(event) => setFile(event.target.files?.[0] ?? null)}
         />
         <button type="submit" disabled={!file || uploading}>
-          {uploading ? 'Uploading…' : 'Upload'}
+          {uploading ? 'Uploading…' : 'Upload image'}
         </button>
       </form>
       {error && <p role="alert" className="error">{error}</p>}
-    </section>
+    </>
   );
 }
