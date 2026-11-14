@@ -21,7 +21,7 @@ flowchart LR
         Results[["SQS pdf-results"]]
     end
 
-    Mongo[("MongoDB (:27017)<br/>e_shop<br/>images, pdfs")]
+    Mongo[("MongoDB (:27017)<br/>localstack<br/>images, pdfs")]
     Worker["PDF worker<br/>(inside Express)"]
 
     Browser -- "/api/... (Vite proxy)<br/>list, upload, delete" --> Routes
@@ -79,6 +79,7 @@ sequenceDiagram
     E->>S: put original at pdfs/raw/<id>
     E->>M: insert record, status "processing"
     E->>Q: send job { id, bucket, sourceKey, targetKey }
+    E->>M: mark record queued
     E-->>B: 202 { id, status: "processing" }
 
     Q->>L: triggers the Lambda (1 job at a time)
@@ -88,7 +89,13 @@ sequenceDiagram
     R->>W: worker long-polls the queue
     W->>M: status "ready" + size, or "failed"
     B->>E: page checks GET /api/pdfs every 3 s until nothing is processing
+
+    Note over E,Q: If the server crashed before "mark record queued"
+    E->>M: at startup: find "processing" records not marked queued
+    E->>Q: send their jobs again
 ```
+
+- **Server crashes mid-upload:** a record saved as "processing" whose job never reached the queue would wait forever. At startup the worker sends those jobs again. Sending a job twice is safe: the Lambda skips a job whose original is already gone, and a record only finishes once.
 
 - **Lambda crashes:** SQS retries the job. After 3 failures it moves to `pdf-compress-dlq`, and the worker marks the PDF failed and deletes the original.
 - **Delete while processing:** when the result arrives there is no record, so the worker deletes the compressed file.
@@ -104,14 +111,15 @@ sequenceDiagram
     participant M as MongoDB
     participant S as S3
 
-    B->>E: GET /api/pdfs (or /api/s3/images)
-    E->>M: find records, newest first
-    E->>E: sign 2 links per file (no S3 call needed)
-    E-->>B: [{ id, name, size, ..., url, downloadUrl }]
+    B->>E: GET /api/pdfs?page=1&limit=5 (or /api/s3/images)
+    E->>M: find one page of records, newest first, and count all
+    E->>E: sign 2 links per file on this page (no S3 call needed)
+    E-->>B: { items: [{ id, name, size, ..., url, downloadUrl }], total, page, limit }
     B->>S: <img src=url> / Open / Download
     S-->>B: file (downloadUrl adds "save as" header)
 ```
 
+- Lists are paged: the UI shows 5 at a time with Previous / Next. Missing or bad `page`/`limit` fall back to page 1 and 20; at most 100 per page. Paging cut p95 page load under load from 2.7 s to 17 ms (see `TESTING.md`).
 - Links last 2 hours and stay identical for each clock hour, so the browser can cache files.
 - The page reloads the lists every 30 minutes to get fresh links before they expire.
 
@@ -125,22 +133,24 @@ sequenceDiagram
 localstack/
 ├── client/                      React + Vite
 │   └── src/
-│       ├── api/                 fetch calls: images.ts, pdfs.ts, errorMessage.ts
-│       ├── components/          UploadForm, ImageList, PdfUploadForm, PdfList
-│       ├── App.tsx              loads lists, refreshes links every 30 min
+│       ├── api/                 fetch calls: images.ts, pdfs.ts, page.ts, errorMessage.ts
+│       ├── components/          UploadForm, ImageList, PdfUploadForm, PdfList, Pager
+│       ├── App.tsx              loads one page of each list, refreshes links every 30 min
 │       └── formatSize.ts
 ├── server/                      Express + TypeScript (run directly by Node 24)
 │   └── src/
 │       ├── index.ts             connect Mongo, start PDF worker, start server
 │       ├── app.ts               mounts routers and error handler
+│       ├── pagination.ts        reads ?page= and ?limit= safely
 │       ├── config/              aws.ts (shared AWS settings), db.ts (Mongo)
 │       ├── middleware/          fileUpload.ts (multer), errorHandler.ts
 │       └── modules/
 │           ├── s3/              s3.client, s3.signer, images.* (routes → controller → service → repository)
 │           ├── sqs/             sqs.client (sendMessage, pollQueue)
 │           └── pdfs/            pdfs.* (routes → controller → service → repository) + pdfs.worker
-└── lambdas/
-    └── compress-pdf/            index.mjs (the Lambda), deploy.sh (queues + Lambda + trigger)
+├── lambdas/
+│   └── compress-pdf/            index.mjs (the Lambda), deploy.sh (queues + Lambda + trigger)
+└── loadtest/                    reliability.mjs (crash tests), load.js (k6), results (see TESTING.md)
 ```
 
 Each feature module has the same layers:
