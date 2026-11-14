@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
+import { readPage } from '../../pagination.ts';
 import { deleteImage, listImages, saveImage } from './images.service.ts';
 
 // SVG is left out on purpose: it can carry scripts that run when opened in a browser.
@@ -32,8 +33,8 @@ export async function uploadImage(req: Request, res: Response) {
   res.status(201).json({ id });
 }
 
-export async function getImages(_req: Request, res: Response) {
-  res.json(await listImages());
+export async function getImages(req: Request, res: Response) {
+  res.json(await listImages(readPage(req.query)));
 }
 
 export async function removeImage(req: Request<{ id: string }>, res: Response) {

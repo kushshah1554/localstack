@@ -15,7 +15,7 @@ import { app } from '../../app.ts';
 import { closeDb, connectDb } from '../../config/db.ts';
 import { bucket, s3 } from '../s3/s3.client.ts';
 import { pdfs } from './pdfs.repository.ts';
-import { handleCompressResult, handleFailedJob } from './pdfs.service.ts';
+import { handleCompressResult, handleFailedJob, requeueUnsentJobs } from './pdfs.service.ts';
 import { startPdfWorker } from './pdfs.worker.ts';
 
 let server: Server;
@@ -95,8 +95,9 @@ async function uploadPdf(t: TestContext, body = makePdf(3), name?: string): Prom
   return id;
 }
 
+// Newest first, so the PDFs a test just uploaded are on the first page.
 async function list(): Promise<ListedPdf[]> {
-  return (await fetch(api)).json();
+  return (await (await fetch(`${api}?limit=100`)).json()).items;
 }
 
 // Compression runs in the background (SQS → Lambda → SQS → worker), so wait for it to finish.
@@ -148,6 +149,24 @@ test('a damaged PDF ends up failed and leaves no files behind', async (t) => {
 test('rejects files that are not PDFs', async () => {
   assert.equal((await upload('hello', 'text/plain')).status, 415);
   assert.equal((await upload('hello', 'application/pdf')).status, 415);
+});
+
+test('a job left unsent by a server crash is sent again and the PDF still finishes', async (t) => {
+  // The state a crash between saving the record and queueing the job leaves behind.
+  const id = `crash-${Date.now()}.pdf`;
+  cleanUpAfter(t, id);
+  const original = makePdf(3);
+  await s3.send(new PutObjectCommand({ Bucket: bucket, Key: `pdfs/raw/${id}`, Body: original }));
+  await pdfs.insertOne({
+    _id: id, name: 'crash.pdf', bucket, key: `pdfs/${id}`,
+    status: 'processing', originalSize: original.length, createdAt: new Date(),
+  });
+  t.mock.method(console, 'log', () => {});
+
+  await requeueUnsentJobs();
+
+  assert.equal((await waitUntilDone(id)).status, 'ready');
+  assert.equal((await pdfs.findOne({ _id: id }))?.queued, true);
 });
 
 test('a failed Mongo insert removes the original from S3', async (t) => {

@@ -19,9 +19,13 @@ export function findImageRecord(id: string) {
   return images.findOne({ _id: id });
 }
 
-// shortcut: returns every record, add pagination once there are thousands of images.
-export function listImageRecords() {
-  return images.find().sort({ createdAt: -1 }).toArray();
+// Newest first; _id breaks ties so uploads made in the same millisecond keep a stable order across pages.
+export async function listImageRecords(skip: number, limit: number) {
+  const [records, total] = await Promise.all([
+    images.find().sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).toArray(),
+    images.countDocuments(),
+  ]);
+  return { records, total };
 }
 
 export async function deleteImageRecord(id: string) {

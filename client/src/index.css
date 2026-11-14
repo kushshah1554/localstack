@@ -251,6 +251,24 @@ button.danger:focus-visible {
   }
 }
 
+/* Pager: outlined, so it stays quieter than the upload buttons. */
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-top: 1.25rem;
+  color: var(--muted);
+}
+
+.pager button {
+  padding: 0.5rem 0.9rem;
+  border: 1.5px solid var(--ink);
+  background: transparent;
+  color: var(--ink);
+  font-weight: 600;
+}
+
 /* Image gallery */
 .gallery {
   display: grid;

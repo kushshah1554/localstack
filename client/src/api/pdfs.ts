@@ -1,4 +1,5 @@
 import { errorMessage } from './errorMessage';
+import type { Page } from './page';
 
 const BASE_URL = '/api/pdfs';
 
@@ -15,8 +16,8 @@ export interface Pdf {
   downloadUrl?: string;
 }
 
-export async function listPdfs(): Promise<Pdf[]> {
-  const res = await fetch(BASE_URL);
+export async function listPdfs(page: number, limit: number): Promise<Page<Pdf>> {
+  const res = await fetch(`${BASE_URL}?page=${page}&limit=${limit}`);
   if (!res.ok) throw new Error(await errorMessage(res, 'Could not load PDFs'));
   return res.json();
 }

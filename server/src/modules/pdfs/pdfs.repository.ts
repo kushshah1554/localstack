@@ -15,6 +15,9 @@ export interface PdfRecord {
   originalSize: number;
   size?: number;
   createdAt: Date;
+  // Set once the compression job is on the queue. Missing on a processing record means the server
+  // stopped before sending it, and the worker sends it again at startup.
+  queued?: boolean;
 }
 
 export const pdfs = db.collection<PdfRecord>('pdfs');
@@ -23,13 +26,25 @@ export async function insertPdfRecord(record: PdfRecord) {
   await pdfs.insertOne(record);
 }
 
+export async function markPdfQueued(id: string) {
+  await pdfs.updateOne({ _id: id }, { $set: { queued: true } });
+}
+
+export function findUnqueuedPdfRecords() {
+  return pdfs.find({ status: 'processing', queued: { $ne: true } }).toArray();
+}
+
 export function findPdfRecord(id: string) {
   return pdfs.findOne({ _id: id });
 }
 
-// shortcut: returns every record, add pagination once there are thousands of PDFs.
-export function listPdfRecords() {
-  return pdfs.find().sort({ createdAt: -1 }).toArray();
+// Newest first; _id breaks ties so uploads made in the same millisecond keep a stable order across pages.
+export async function listPdfRecords(skip: number, limit: number) {
+  const [records, total] = await Promise.all([
+    pdfs.find().sort({ createdAt: -1, _id: -1 }).skip(skip).limit(limit).toArray(),
+    pdfs.countDocuments(),
+  ]);
+  return { records, total };
 }
 
 // Only a PDF that is still processing changes, so a late or repeated message can't undo a finished one.

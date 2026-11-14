@@ -1,13 +1,16 @@
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import type { PageQuery } from '../../pagination.ts';
 import { bucket, s3 } from '../s3/s3.client.ts';
 import { signUrl } from '../s3/s3.signer.ts';
 import { sendMessage } from '../sqs/sqs.client.ts';
 import {
   deletePdfRecord,
   findPdfRecord,
+  findUnqueuedPdfRecords,
   finishPdfRecord,
   insertPdfRecord,
   listPdfRecords,
+  markPdfQueued,
 } from './pdfs.repository.ts';
 
 // Created by lambdas/compress-pdf/deploy.sh.
@@ -64,6 +67,20 @@ export async function savePdf(id: string, name: string, body: Buffer) {
     await deleteFromS3(job.sourceKey);
     throw err;
   }
+
+  // The job is already sent, so a failure here only means it is sent once more at the next startup (harmless).
+  await markPdfQueued(id).catch((err) => console.error('Could not mark PDF queued', id, err));
+}
+
+// A server that dies between saving the record and sending the job leaves the PDF "processing" forever.
+// Sending a job twice is safe: the Lambda skips a job whose original is already gone, and a record only finishes once.
+export async function requeueUnsentJobs() {
+  for (const record of await findUnqueuedPdfRecords()) {
+    const job: CompressJob = { id: record._id, bucket: record.bucket, sourceKey: `pdfs/raw/${record._id}`, targetKey: record.key };
+    await sendMessage(COMPRESS_QUEUE, job);
+    await markPdfQueued(record._id);
+    console.log('Re-sent compression job left unsent by a crash', record._id);
+  }
 }
 
 // From the results queue. The Lambda has already removed the original.
@@ -84,10 +101,10 @@ export async function handleFailedJob(job: CompressJob) {
   await deleteFromS3(job.sourceKey);
 }
 
-// Links are only signed for PDFs that are ready. Bucket and key stay internal.
-export async function listPdfs() {
-  const records = await listPdfRecords();
-  return Promise.all(
+// Links are only signed for PDFs that are ready, and only for the requested page. Bucket and key stay internal.
+export async function listPdfs({ page, limit, skip }: PageQuery) {
+  const { records, total } = await listPdfRecords(skip, limit);
+  const items = await Promise.all(
     records.map(async (record) => {
       // PDFs uploaded before names were stored have none, so fall back to the id.
       const name = record.name ?? record._id;
@@ -106,6 +123,7 @@ export async function listPdfs() {
       };
     })
   );
+  return { items, total, page, limit };
 }
 
 // S3 goes first: if the Mongo delete then fails, deleting again still works, and no hidden file is left behind.

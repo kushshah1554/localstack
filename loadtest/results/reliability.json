@@ -1,0 +1,36 @@
+{
+  "date": "2026-11-14T14:29:17.446Z",
+  "jobs": 50,
+  "checks": [
+    {
+      "name": "Server killed (SIGKILL) right after 50 uploads, down 15 s",
+      "pass": true,
+      "detail": "50/50 accepted, 50/50 ready after restart (restart 0.3 s, all done 15.6 s later), 0 stuck, 0 failed"
+    },
+    {
+      "name": "Server killed in the middle of 25 uploads",
+      "pass": true,
+      "detail": "5 got 202 before the crash, 20 lost their connection; 25 ready, 0 stuck in processing, 0 accepted but lost"
+    },
+    {
+      "name": "Damaged PDF (valid header, garbage body)",
+      "pass": true,
+      "detail": "upload 202, ended as \"failed\" after 1.1 s, other jobs unaffected"
+    },
+    {
+      "name": "11 MB file (limit is 10 MB)",
+      "pass": true,
+      "detail": "rejected with 413"
+    },
+    {
+      "name": "Text file renamed to .pdf",
+      "pass": true,
+      "detail": "rejected with 415"
+    },
+    {
+      "name": "File sent in the wrong form field",
+      "pass": true,
+      "detail": "rejected with 400"
+    }
+  ]
+}

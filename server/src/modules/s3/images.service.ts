@@ -1,4 +1,5 @@
 import { DeleteObjectCommand, PutObjectCommand } from '@aws-sdk/client-s3';
+import type { PageQuery } from '../../pagination.ts';
 import {
   deleteImageRecord,
   findImageRecord,
@@ -36,10 +37,10 @@ export async function saveImage(id: string, body: Buffer, contentType: string) {
   }
 }
 
-// Links are only signed for images that have a Mongo record. Bucket and key stay internal.
-export async function listImages() {
-  const records = await listImageRecords();
-  return Promise.all(
+// Links are only signed for images that have a Mongo record, and only for the requested page. Bucket and key stay internal.
+export async function listImages({ page, limit, skip }: PageQuery) {
+  const { records, total } = await listImageRecords(skip, limit);
+  const items = await Promise.all(
     records.map(async (record) => ({
       id: record._id,
       contentType: record.contentType,
@@ -49,6 +50,7 @@ export async function listImages() {
       downloadUrl: await signUrl(record, record._id),
     }))
   );
+  return { items, total, page, limit };
 }
 
 // S3 goes first: if the Mongo delete then fails, deleting again still works, and no hidden file is left behind.

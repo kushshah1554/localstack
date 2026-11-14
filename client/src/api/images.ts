@@ -1,4 +1,5 @@
 import { errorMessage } from './errorMessage';
+import type { Page } from './page';
 
 const BASE_URL = '/api/s3/images';
 
@@ -12,8 +13,8 @@ export interface Image {
   downloadUrl: string;
 }
 
-export async function listImages(): Promise<Image[]> {
-  const res = await fetch(BASE_URL);
+export async function listImages(page: number, limit: number): Promise<Page<Image>> {
+  const res = await fetch(`${BASE_URL}?page=${page}&limit=${limit}`);
   if (!res.ok) throw new Error(await errorMessage(res, 'Could not load images'));
   return res.json();
 }

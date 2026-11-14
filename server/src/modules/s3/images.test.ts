@@ -57,9 +57,33 @@ function removeAfterTest(t: TestContext, id: string) {
   });
 }
 
+// Newest first, so the images a test just uploaded are on the first page.
 async function list(): Promise<ListedImage[]> {
-  return (await fetch(api)).json();
+  return (await (await fetch(`${api}?limit=100`)).json()).items;
 }
+
+test('list is paged newest first, and bad page values fall back to defaults', async (t) => {
+  const ids = [];
+  for (let i = 0; i < 3; i++) {
+    ids.push(await uploadPng(t));
+    await new Promise((resolve) => setTimeout(resolve, 5)); // distinct createdAt
+  }
+  const [oldest, middle, newest] = ids;
+
+  const page1 = await (await fetch(`${api}?page=1&limit=2`)).json();
+  assert.deepEqual(page1.items.map((image: ListedImage) => image.id), [newest, middle]);
+  assert.equal(page1.page, 1);
+  assert.equal(page1.limit, 2);
+  assert.ok(page1.total >= 3);
+
+  const page2 = await (await fetch(`${api}?page=2&limit=2`)).json();
+  assert.equal(page2.items[0].id, oldest);
+
+  const fallback = await (await fetch(`${api}?page=abc&limit=-5`)).json();
+  assert.equal(fallback.page, 1);
+  assert.equal(fallback.limit, 20);
+  assert.equal((await (await fetch(`${api}?limit=5000`)).json()).limit, 100);
+});
 
 async function listImageKeys() {
   const { Contents = [] } = await s3.send(

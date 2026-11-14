@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Request, Response } from 'express';
+import { readPage } from '../../pagination.ts';
 import { deletePdf, listPdfs, savePdf } from './pdfs.service.ts';
 
 export async function uploadPdf(req: Request, res: Response) {
@@ -22,8 +23,8 @@ export async function uploadPdf(req: Request, res: Response) {
   res.status(202).json({ id, status: 'processing' });
 }
 
-export async function getPdfs(_req: Request, res: Response) {
-  res.json(await listPdfs());
+export async function getPdfs(req: Request, res: Response) {
+  res.json(await listPdfs(readPage(req.query)));
 }
 
 export async function removePdf(req: Request<{ id: string }>, res: Response) {
